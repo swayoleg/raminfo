@@ -181,7 +181,7 @@ fn render_mem_stats(s: &MemStats, dimms: &[DimmSlot]) {
     let bar_w   = 36usize;
     let box_w   = bar_w + 34;
     let used_kb = s.total_kb.saturating_sub(s.available_kb);
-    let used_pct= if s.total_kb > 0 { used_kb * 100 / s.total_kb } else { 0 };
+    let _used_pct = if s.total_kb > 0 { used_kb * 100 / s.total_kb } else { 0 };
     let swap_used = s.swap_total_kb.saturating_sub(s.swap_free_kb);
 
     let bdr = |s: &str| s.bright_black().to_string();
