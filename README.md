@@ -78,8 +78,11 @@ Download the binary for your architecture from the [Releases](https://github.com
 | File | Target |
 |---|---|
 | `raminfo-x86_64-linux` | 64-bit Linux (most desktops / servers) |
-| `raminfo-aarch64-linux` | 64-bit ARM (Raspberry Pi 4/5, AWS Graviton) |
-| `raminfo-armv7-linux` | 32-bit ARM (Raspberry Pi 2/3 running 32-bit OS) |
+| `raminfo-aarch64-linux` | 64-bit ARM — modern distros (Raspberry Pi 4/5 on Ubuntu 22.04+, AWS Graviton) |
+| `raminfo-aarch64-linux-static` | 64-bit ARM — older distros (Raspberry Pi 4/5 on Raspberry Pi OS Bullseye/Bookworm) |
+| `raminfo-armv7-linux` | 32-bit ARM — modern distros (Raspberry Pi 2/3 on Ubuntu 22.04+) |
+| `raminfo-armv7-linux-static` | 32-bit ARM — older distros (Raspberry Pi 2/3 on Raspberry Pi OS Bullseye/Bookworm) |
+
 
 ```bash
 # example for x86_64
@@ -99,6 +102,55 @@ cd raminfo
 cargo build --release
 sudo cp target/release/raminfo /usr/local/bin/
 ```
+
+
+## 3. Compile from source
+```bash
+git clone https://github.com/swayoleg/raminfo
+cd raminfo
+cargo build --release
+sudo cp target/release/raminfo /usr/local/bin/
+```
+
+**Cross-compiling for ARM** (from an x86 machine):
+```bash
+# install targets
+rustup target add aarch64-unknown-linux-gnu
+rustup target add aarch64-unknown-linux-musl
+rustup target add armv7-unknown-linux-gnueabihf
+rustup target add armv7-unknown-linux-musleabihf
+
+# install cross-linkers (Ubuntu/Debian)
+sudo apt install musl-tools gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+
+# build gnu (modern distros)
+cargo build --release --target aarch64-unknown-linux-gnu
+cargo build --release --target armv7-unknown-linux-gnueabihf
+
+# build musl/static (older distros, Raspberry Pi OS)
+cargo build --release --target aarch64-unknown-linux-musl
+cargo build --release --target armv7-unknown-linux-musleabihf
+```
+
+Also add to `.cargo/config.toml`:
+```toml
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-gnu-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "arm-linux-gnueabihf-gcc"
+rustflags = ["-C", "target-feature=+crt-static"]
+```
+
+Binaries will be in `target/<target-triple>/release/raminfo`.
+
 
 **Cross-compiling for ARM** (from an x86 machine):
 
