@@ -6,7 +6,7 @@
 [Install](#install) · [Usage](#usage) · [Roadmap](#roadmap--todo) · [Contributing](CONTRIBUTING.md)
 
 A minimal RAM inspection tool for Linux. Shows DIMM slot details (model, vendor, frequency), memory usage stats and top consumers — in a clean, `btop`-style TUI.
-
+Raspberry Pi supported. 
 > **Linux only.** Requires `/proc`, `/sys/class/hwmon`, and `dmidecode`.
 
 ```
@@ -34,17 +34,76 @@ A minimal RAM inspection tool for Linux. Shows DIMM slot details (model, vendor,
 
   Top Memory Consumers
 ╭────────────────────────────────────────────────────────────────────────────────╮
-│  #    PID      Process                     RSS                           Share  │
+│  #    PID      Process                     RSS                           Share │
 ├────────────────────────────────────────────────────────────────────────────────┤
 │   1.  9703     phpstorm                 5.7 GB   ████░░░░░░░░░░░░░░░░░░░░  18% │
 │   2.  9907     copilot-languag          883 MB   █░░░░░░░░░░░░░░░░░░░░░░░   2% │
 │   3.  10702    chrome                   821 MB   █░░░░░░░░░░░░░░░░░░░░░░░   2% │
 ╰────────────────────────────────────────────────────────────────────────────────╯
+
+ Upgrade Potential
+╭────────────────────────────────────────────────────────╮
+│  Slots           2 used / 4 total  ●●○○                │
+│  Installed       32 GB                                 │
+│  Maximum         64 GB                                 │
+│  Headroom        32 GB available                       │
+│  Max Freq        3200 MT/s                             │
+╰────────────────────────────────────────────────────────╯
+
+  Motherboard
+╭──────────────────────────────────────────────────────────────────────╮
+│  Manufacturer        Gigabyte Technology Co., Ltd.                   │
+│  Product             Z390 GAMING SLI-CF                              │
+╰──────────────────────────────────────────────────────────────────────╯
+```
+
+Or in RaspberryPi
+
+```
+  Board Memory
+╭────────────────────────────────────────────────────────╮
+│  Raspberry Pi 5 Model B Rev 1.1                        │
+├────────────────────────────────────────────────────────┤
+│  Type          LPDDR4X  (soldered, no slots)           │
+│  Frequency     4267 MT/s (default)                     │
+│  Voltage       0.6000V                                 │
+╰────────────────────────────────────────────────────────╯
+
+  Memory Usage
+╭──────────────────────────────────────────────────────────────────────╮
+│  RAM                                                        15.8 GB  │
+├──────────────────────────────────────────────────────────────────────┤
+│  Used             2.3 GB   █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  14% │
+│  Available       13.5 GB                                             │
+│  Free             536 MB                                             │
+│  Buffers          1.2 GB                                             │
+│  Cached          11.8 GB                                             │
+├──────────────────────────────────────────────────────────────────────┤
+│  Swap Used        244 MB   █████████████████░░░░░░░░░░░░░░░░░░░  47% │
+│  Swap Total       511 MB                                             │
+╰──────────────────────────────────────────────────────────────────────╯
+
+  Top Memory Consumers
+╭─────────────────────────────────────────────────────────────────────────────────╮
+│  #    PID      Process                     RSS                             Share│
+├─────────────────────────────────────────────────────────────────────────────────┤
+│   1.  2928     jellyfin                 528 MB   █░░░░░░░░░░░░░░░░░░░░░░░    3% │
+│   2.  868      node                     171 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    1% │
+│   3.  892      MainThread               156 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│   4.  973599   pcmanfm                  149 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│   5.  1147     syncthing                108 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│   6.  2008011  mariadbd                 105 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│   7.  1020     labwc                    104 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│   8.  1453483  cps                       98 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│   9.  899      wayvnc                    98 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+│  10.  865      node                      79 MB   ░░░░░░░░░░░░░░░░░░░░░░░░    0% │
+╰─────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Screenshot
 
 ![raminfo screenshot](assets/screenshot.png)
+![raminfo screenshot](assets/screenshot-raspberry.png)
 
 
 ## RAM Temperatures
@@ -93,16 +152,6 @@ sudo mv raminfo /usr/local/bin/
 ```
 
 ---
-
-## 3. Compile from source
-
-```bash
-git clone https://github.com/swayoleg/raminfo
-cd raminfo
-cargo build --release
-sudo cp target/release/raminfo /usr/local/bin/
-```
-
 
 ## 3. Compile from source
 ```bash
