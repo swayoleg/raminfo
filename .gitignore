@@ -3,4 +3,7 @@
 /.cargo/git
 build-releases.sh
 raminfo-*-linux
-raminfo-linux-static
+raminfo*-linux*-static
+..bfg-report/
+bfg-report
+bfg.jar
