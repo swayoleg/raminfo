@@ -1,1 +1,5 @@
 /target
+/.cargo/registry
+/.cargo/git
+build-releases.sh
+raminfo-*-linux
