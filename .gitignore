@@ -3,3 +3,4 @@
 /.cargo/git
 build-releases.sh
 raminfo-*-linux
+raminfo-linux-static
