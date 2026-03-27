@@ -243,7 +243,7 @@ fn temp_colored(c: f64) -> ColoredString {
 // ─── Renderers ────────────────────────────────────────────────────────────────
 
 fn render_dimm_table(slots: &[DimmSlot]) {
-    let w = [8usize, 24, 14, 7, 6, 9, 9, 7];
+    let w = [16usize, 24, 14, 7, 6, 9, 9, 7];
     let sep = |l: &str, f: &str, m: &str, r: &str| -> String {
         let segs: Vec<String> = w.iter().map(|n| f.repeat(n + 2)).collect();
         format!("{}{}{}", l, segs.join(m), r)
