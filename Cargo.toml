@@ -5,7 +5,7 @@ edition = "2024"
 description = "Linux RAM inspector — DIMM slots, model, frequency, temperatures, usage stats and top consumers"
 license = "MIT"
 repository = "https://github.com/swayoleg/raminfo"
-keywords = ["ram", "memory", "hardware", "cli", "linux", "ddr", "frequency"]
+keywords = ["ram", "memory", "cli", "linux", "ddr"]
 categories = ["command-line-utilities"]
 readme = "README.md"
 
