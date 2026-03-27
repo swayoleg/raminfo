@@ -374,7 +374,7 @@ fn render_top_consumers(procs: &[ProcessMem], total_kb: u64) {
 
     let bar_w  = 24usize;
     // cols: rank(3) pid(7) name(20) rss(9) bar(bar_w) pct(5)
-    let box_w  = 3 + 7 + 20 + 9 + bar_w + 5 + 12; // paddings
+    let box_w  = 3 + 7 + 20 + 9 + bar_w + 5 + 13; // paddings
 
     let bdr = |s: &str| s.bright_black().to_string();
     let top = bdr(&format!("╭{}╮", "─".repeat(box_w)));
