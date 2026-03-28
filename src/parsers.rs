@@ -5,8 +5,12 @@ use crate::types::*;
 // ─── Parsers ──────────────────────────────────────────────────────────────────
 
 pub fn parse_proc_meminfo() -> MemStats {
-    let mut s = MemStats::default();
     let content = fs::read_to_string("/proc/meminfo").unwrap_or_default();
+    parse_meminfo_content(&content)
+}
+
+pub fn parse_meminfo_content(content: &str) -> MemStats {
+    let mut s = MemStats::default();
     for line in content.lines() {
         let parts: Vec<&str> = line.splitn(2, ':').collect();
         if parts.len() != 2 { continue; }
@@ -38,6 +42,10 @@ pub fn parse_dmidecode() -> Vec<DimmSlot> {
         _ => return vec![],
     };
 
+    parse_dmidecode_output(&text)
+}
+
+pub fn parse_dmidecode_output(text: &str) -> Vec<DimmSlot> {
     let mut slots: Vec<DimmSlot> = Vec::new();
     let mut current: Option<DimmSlot> = None;
 
@@ -92,6 +100,10 @@ pub fn parse_dmidecode_array() -> MemArrayInfo {
         _ => return MemArrayInfo::default(),
     };
 
+    parse_dmidecode_array_output(&text)
+}
+
+pub fn parse_dmidecode_array_output(text: &str) -> MemArrayInfo {
     let mut info = MemArrayInfo::default();
 
     for line in text.lines() {
@@ -126,7 +138,15 @@ pub fn parse_dmidecode_array() -> MemArrayInfo {
 /// Returns None on non-Pi hardware.
 pub fn detect_raspberry_pi() -> Option<PiBoardInfo> {
     let cpuinfo = fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    let mut info = parse_cpuinfo_for_pi(&cpuinfo)?;
+    info.freq_mhz = read_vcgencmd_freq();
+    info.voltage  = read_vcgencmd_voltage();
+    Some(info)
+}
 
+/// Parse /proc/cpuinfo content and detect Raspberry Pi model.
+/// Returns PiBoardInfo with freq_mhz=None and voltage=None (caller adds those).
+pub fn parse_cpuinfo_for_pi(cpuinfo: &str) -> Option<PiBoardInfo> {
     let model = cpuinfo
         .lines()
         .find(|l| l.starts_with("Model"))?
@@ -151,10 +171,7 @@ pub fn detect_raspberry_pi() -> Option<PiBoardInfo> {
         "LPDDR"
     }.to_string();
 
-    let freq_mhz = read_vcgencmd_freq();
-    let voltage  = read_vcgencmd_voltage();
-
-    Some(PiBoardInfo { model, mem_type, freq_mhz, voltage })
+    Some(PiBoardInfo { model, mem_type, freq_mhz: None, voltage: None })
 }
 
 /// Run `vcgencmd measure_clock sdram_c` and return frequency in MT/s.
@@ -296,6 +313,10 @@ pub fn read_mobo_info() -> MoboInfo {
         _ => return MoboInfo::default(),
     };
 
+    parse_mobo_output(&text)
+}
+
+pub fn parse_mobo_output(text: &str) -> MoboInfo {
     let mut info = MoboInfo::default();
     for line in text.lines() {
         let kv: Vec<&str> = line.splitn(2, ':').collect();

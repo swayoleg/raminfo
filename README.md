@@ -1,9 +1,10 @@
 # raminfo
 
+![CI](https://github.com/swayoleg/raminfo/actions/workflows/ci.yml/badge.svg)
 ![Linux only](https://img.shields.io/badge/platform-linux-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 
-[Install](#install) · [Usage](#usage) · [Roadmap](#roadmap--todo) · [Contributing](CONTRIBUTING.md)
+[Install](#install) · [Usage](#usage) · [Testing](#testing) · [Roadmap](#roadmap--todo) · [Contributing](CONTRIBUTING.md)
 
 A minimal RAM inspection tool for Linux. Shows DIMM slot details (model, vendor, frequency), memory usage stats and top consumers — in a clean, `btop`-style TUI.
 Raspberry Pi supported. 
@@ -200,24 +201,6 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 Binaries will be in `target/<target-triple>/release/raminfo`.
 
-
-**Cross-compiling for ARM** (from an x86 machine):
-
-```bash
-# install targets
-rustup target add aarch64-unknown-linux-gnu
-rustup target add armv7-unknown-linux-gnueabihf
-
-# install cross-linkers (Ubuntu/Debian)
-sudo apt install gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
-
-# build
-cargo build --release --target aarch64-unknown-linux-gnu
-cargo build --release --target armv7-unknown-linux-gnueabihf
-```
-
-Binaries will be in `target/<target-triple>/release/raminfo`.
-
 ---
 
 ## Post-install: dmidecode
@@ -252,9 +235,19 @@ DIMM slot info requires `sudo` to call `dmidecode`. For passwordless use, add to
 your_user ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
 ```
 
+# Testing
+
+```bash
+cargo test                        # run all tests
+cargo test --test format_tests    # formatting helpers only
+cargo test --test parsing_tests   # parser logic only
+```
+
+Tests live in the `tests/` directory and cover formatting utilities (`format.rs`) and all parsing logic (`parsers.rs`) using mock system data. The `src/lib.rs` file exists solely to expose modules to these integration tests.
+
 # Roadmap / TODO
 
-- [ ] Cover with tests
+- [x] Cover with tests
 - [ ] `--monitor` — live refresh mode
 - [ ] `--interval <seconds>` — refresh rate for monitor mode (default: 2s)
 - [ ] `--monitor --json` — newline-delimited JSON stream (ndjson)

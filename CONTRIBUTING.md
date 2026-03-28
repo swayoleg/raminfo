@@ -37,16 +37,19 @@ Describe the issue here.
 
 2. **Keep changes focused** — one feature or fix per PR, no unrelated cleanups mixed in
 
-3. **Build must pass** with zero warnings
+3. **Build must pass** with zero warnings and **all tests must pass**
    ```bash
    cargo build --release
+   cargo test
    ```
 
 4. **Include OS and hardware info** in the PR description — same fields as the issue template above. This is mandatory because behaviour differs across kernels, distros and RAM generations (DDR4 vs DDR5 sensor availability, hwmon driver names, dmidecode output format, etc.)
 
 5. **Describe what you tested** — which sections rendered correctly, whether you ran with and without sudo
 
-6. Open the PR against `master`
+6. **Add tests** for new parsing logic — place them in the `tests/` directory using mock data. See existing tests for examples.
+
+7. Open the PR against `master`
 
 ---
 
