@@ -1,6 +1,6 @@
 [package]
 name = "raminfo"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Linux RAM inspector — DIMM slots, model, frequency, temperatures, usage stats and top consumers"
 license = "MIT"
