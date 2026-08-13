@@ -4,6 +4,39 @@ use crate::format::*;
 
 // ─── Renderers ────────────────────────────────────────────────────────────────
 
+/// Render a full [`Snapshot`] to stdout as the `btop`-style TUI.
+///
+/// This reproduces the standard single-shot terminal output: a Raspberry Pi board
+/// panel or a DIMM table (or a "no data" hint), followed by memory usage,
+/// temperatures, top consumers, and — on x86 with DIMM data — upgrade potential
+/// and motherboard info.
+pub fn render_snapshot(s: &Snapshot) {
+    match (&s.pi, s.dimms.is_empty()) {
+        (Some(info), _) => {
+            render_pi_board(info);
+        }
+        (None, false) => {
+            render_dimm_table(&s.dimms);  // stays at top
+        }
+        (None, true) => {
+            println!();
+            println!("  {} {}", "⚠".yellow(),
+                     "No DIMM hardware data — run with sudo for slot/model details".dimmed());
+        }
+    }
+
+    render_mem_stats(&s.mem, &s.dimms);
+    render_temps(&s.temps);
+    render_top_consumers(&s.top_consumers, s.mem.total_kb);
+
+    if s.pi.is_none() && !s.dimms.is_empty() {
+        render_upgrade_potential(&s.dimms, &s.array);
+        render_mobo_info(&s.mobo);
+    }
+
+    println!();
+}
+
 pub fn render_dimm_table(slots: &[DimmSlot]) {
     let w = [16usize, 24, 14, 7, 6, 9, 9, 7];
     let sep = |l: &str, f: &str, m: &str, r: &str| -> String {
@@ -159,6 +192,16 @@ pub fn render_pi_board(info: &PiBoardInfo) {
     println!("{}", bdr(&format!("╰{}╯", "─".repeat(box_w))));
 }
 
+/// Render only the dynamic sections — memory usage, temperatures, and top
+/// consumers — omitting the static hardware panels (DIMM table, upgrade
+/// potential, motherboard, Pi board). Used by monitor mode.
+pub fn render_monitor(s: &Snapshot) {
+    render_mem_stats(&s.mem, &s.dimms);
+    render_temps(&s.temps);
+    render_top_consumers(&s.top_consumers, s.mem.total_kb);
+    println!();
+}
+
 pub fn render_mem_stats(s: &MemStats, dimms: &[DimmSlot]) {
     let bar_w   = 36usize;
     let box_w   = bar_w + 34;
@@ -218,7 +261,7 @@ pub fn render_mem_stats(s: &MemStats, dimms: &[DimmSlot]) {
     println!("{}", bot);
 }
 
-pub fn render_temps(temps: &[(String, f64)]) {
+pub fn render_temps(temps: &[TempReading]) {
     if temps.is_empty() { return; }
 
     let box_w = 70usize;
@@ -228,9 +271,9 @@ pub fn render_temps(temps: &[(String, f64)]) {
     println!("  {}", "RAM Temperatures".bold().bright_white());
     println!("{}", bdr(&format!("╭{}╮", "─".repeat(box_w))));
 
-    for (label, celsius) in temps {
-        let temp_str = temp_colored(*celsius).to_string();
-        let label_col = format!("  {:<30}", label);
+    for reading in temps {
+        let temp_str = temp_colored(reading.celsius).to_string();
+        let label_col = format!("  {:<30}", reading.label);
         let visible_len = label_col.len() + 6;
         let pad = box_w.saturating_sub(visible_len);
         println!("{}{}{}{}{}", bdr("│"), label_col, temp_str, " ".repeat(pad), bdr("│"));

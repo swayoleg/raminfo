@@ -235,6 +235,124 @@ DIMM slot info requires `sudo` to call `dmidecode`. For passwordless use, add to
 your_user ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
 ```
 
+## Options
+
+| Flag | Description |
+|---|---|
+| `--json` | Print a single JSON snapshot instead of the TUI (for scripting / `jq`) |
+| `--monitor` | Continuously refresh the dynamic sections (memory usage, temps, top consumers) — redraws the TUI in place each cycle (uses the alternate screen buffer like `htop`/`btop`; restores your terminal on Ctrl+C) |
+| `--interval <seconds>` | Refresh rate for `--monitor` mode (default: `2`, minimum `1`). Also accepts `--interval=<seconds>` |
+| `-h`, `--help` | Print usage and exit |
+
+```bash
+raminfo --json | jq                       # single JSON object (full snapshot)
+raminfo --json | jq '.mem.total_kb'       # pick out one field
+raminfo --monitor                         # live-refreshing TUI
+raminfo --monitor --interval 5            # refresh every 5 seconds
+raminfo --monitor --json | jq -c .        # ndjson stream, one object per refresh
+
+# follow a single field live (jq --unbuffered so it prints each line as it arrives)
+raminfo --monitor --json --interval 2 | jq --unbuffered '.mem.available_kb'
+
+# log samples to a file for later analysis
+raminfo --monitor --json >> ram-log.ndjson
+```
+
+`--json` (single-shot) prints one compact object with the **full** snapshot
+(DIMM slots, motherboard, memory array, usage, consumers).
+
+**Monitor mode only refreshes what changes** — memory usage, temperatures, and
+top consumers. Static hardware details (DIMM slots, motherboard, max capacity)
+are shown once by the single-shot commands and omitted from monitor output, so
+`--monitor` stays focused and doesn't re-run `dmidecode` every cycle. Under
+`--monitor --json` each ndjson line therefore contains just `mem`, `temps`, and
+`top_consumers` — ideal for logging or streaming into tools that read a line at
+a time.
+
+# Library
+
+The core parsing lives in a reusable `raminfo` library crate. Add it to your project:
+
+```bash
+cargo add raminfo
+```
+
+or in `Cargo.toml`:
+
+```toml
+[dependencies]
+raminfo = "0.1"
+```
+
+The crate exposes two tiers of functions, depending on whether you want it to
+read the system for you or just parse text you already have.
+
+### 1. Read the system for you
+
+The simplest entry point is `collect_snapshot`, which gathers every data source
+into one serializable [`Snapshot`]:
+
+```rust
+fn main() {
+    let snap = raminfo::parsers::collect_snapshot();
+
+    println!("Total RAM: {} kB", snap.mem.total_kb);
+    for dimm in &snap.dimms {
+        println!("{}: {} MB {}", dimm.locator, dimm.size_mb, dimm.mem_type);
+    }
+
+    // Or serialize the whole snapshot to JSON:
+    println!("{}", raminfo::json::to_json(&snap));
+}
+```
+
+Prefer one source? Call a single collector — each reads its source directly:
+
+```rust
+let mem   = raminfo::parsers::parse_proc_meminfo();   // /proc/meminfo
+let dimms = raminfo::parsers::parse_dmidecode();      // dmidecode -t 17 (needs sudo)
+let temps = raminfo::parsers::read_ram_temps();       // /sys/class/hwmon
+let top   = raminfo::parsers::top_mem_consumers(5);   // /proc/*/status
+```
+
+All of these degrade gracefully (returning empty/default data) when a source is
+unavailable — they never panic. DIMM and motherboard details require `dmidecode`
+(typically via sudo).
+
+### 2. Use it as a pure parser (bring your own text)
+
+If you already have the raw text — read from a file, captured on another machine,
+or produced by your own privileged call — the `*_content` / `*_output` functions
+parse a `&str` into the same structs and touch nothing on your system:
+
+```rust
+use raminfo::parsers::{parse_meminfo_content, parse_dmidecode_output};
+
+// e.g. text you collected over SSH from a remote host
+let meminfo = std::fs::read_to_string("captured/meminfo.txt").unwrap();
+let stats   = parse_meminfo_content(&meminfo);
+println!("remote total: {} kB", stats.total_kb);
+
+let dmi   = std::fs::read_to_string("captured/dmidecode-17.txt").unwrap();
+let dimms = parse_dmidecode_output(&dmi);
+println!("remote DIMMs: {}", dimms.len());
+```
+
+Pure parsers available: `parse_meminfo_content`, `parse_dmidecode_output`,
+`parse_dmidecode_array_output`, `parse_mobo_output`, and `parse_cpuinfo_for_pi`.
+These are deterministic and side-effect-free, which is exactly what the test
+suite exercises with mock data.
+
+### API docs
+
+Every public item is documented, and the crate's own doc examples are compiled
+and run as doctests (`cargo test`), so the documented API stays correct. Browse
+the full API locally with:
+
+```bash
+cargo doc --open --no-deps
+```
+
 # Testing
 
 ```bash
@@ -243,19 +361,21 @@ cargo test --test format_tests    # formatting helpers only
 cargo test --test parsing_tests   # parser logic only
 ```
 
-Tests live in the `tests/` directory and cover formatting utilities (`format.rs`) and all parsing logic (`parsers.rs`) using mock system data. The `src/lib.rs` file exists solely to expose modules to these integration tests.
+Tests live in the `tests/` directory and cover formatting utilities (`format.rs`), all parsing logic (`parsers.rs`), and JSON output (`json.rs`) using mock system data. Argument parsing is unit-tested inline in `main.rs`. The `src/lib.rs` file also exposes the crate as a reusable [library](#library).
 
 # Roadmap / TODO
 
 - [x] Cover with tests
-- [ ] `--monitor` — live refresh mode
-- [ ] `--interval <seconds>` — refresh rate for monitor mode (default: 2s)
-- [ ] `--monitor --json` — newline-delimited JSON stream (ndjson)
-- [ ] `--json` — single-shot JSON output for scripting and piping to `jq`
+- [x] `--monitor` — live refresh mode
+- [x] `--interval <seconds>` — refresh rate for monitor mode (default: 2s)
+- [x] `--monitor --json` — newline-delimited JSON stream (ndjson)
+- [x] `--json` — single-shot JSON output for scripting and piping to `jq`
 - [ ] Windows support via WMI (`Win32_PhysicalMemory`, `Win32_OperatingSystem`)
-- [ ] Refactor into lib + binary — expose core parsing as a reusable library crate
+- [x] Refactor into lib + binary — expose core parsing as a reusable library crate
 
 # Dependencies
 
 - [`colored`](https://crates.io/crates/colored) — terminal colors
+- [`serde`](https://crates.io/crates/serde) / [`serde_json`](https://crates.io/crates/serde_json) — JSON output (`--json`) and serializable data structures
+- [`ctrlc`](https://crates.io/crates/ctrlc) — restore the terminal on Ctrl+C in `--monitor` mode
 - `dmidecode` — system package, required for DIMM slot details, will ignore dim slots if not installed

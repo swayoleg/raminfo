@@ -4,11 +4,56 @@ use crate::types::*;
 
 // ─── Parsers ──────────────────────────────────────────────────────────────────
 
+/// Collect a complete [`Snapshot`] of all memory-related system data in one call.
+///
+/// This is the primary entry point for library consumers. It gathers memory
+/// stats, DIMM slots, the physical memory array, temperatures, top memory
+/// consumers, Raspberry Pi board info, and motherboard details. Every underlying
+/// parser degrades gracefully (returning empty/default data) when a source is
+/// unavailable, so this never panics — DIMM/motherboard details simply require
+/// `dmidecode` (typically via sudo).
+///
+/// # Example
+///
+/// ```no_run
+/// let snap = raminfo::parsers::collect_snapshot();
+/// println!("Total RAM: {} kB", snap.mem.total_kb);
+/// ```
+pub fn collect_snapshot() -> Snapshot {
+    Snapshot {
+        mem: parse_proc_meminfo(),
+        dimms: parse_dmidecode(),
+        array: parse_dmidecode_array(),
+        temps: read_ram_temps(),
+        top_consumers: top_mem_consumers(10),
+        pi: detect_raspberry_pi(),
+        mobo: read_mobo_info(),
+    }
+}
+
+/// Collect only the frequently-changing data — memory stats, temperatures, and
+/// top consumers — into a [`Snapshot`], leaving the static hardware fields
+/// (`dimms`, `array`, `mobo`, `pi`) at their defaults.
+///
+/// Intended for monitor mode: static DIMM/motherboard details don't change
+/// between refreshes, and re-running `dmidecode` (a sudo subprocess) every cycle
+/// is wasteful, so this skips it entirely.
+pub fn collect_dynamic() -> Snapshot {
+    Snapshot {
+        mem: parse_proc_meminfo(),
+        temps: read_ram_temps(),
+        top_consumers: top_mem_consumers(10),
+        ..Default::default()
+    }
+}
+
+/// Read and parse `/proc/meminfo` into a [`MemStats`].
 pub fn parse_proc_meminfo() -> MemStats {
     let content = fs::read_to_string("/proc/meminfo").unwrap_or_default();
     parse_meminfo_content(&content)
 }
 
+/// Parse `/proc/meminfo`-formatted text into a [`MemStats`]. Unknown keys are ignored.
 pub fn parse_meminfo_content(content: &str) -> MemStats {
     let mut s = MemStats::default();
     for line in content.lines() {
@@ -31,6 +76,8 @@ pub fn parse_meminfo_content(content: &str) -> MemStats {
     s
 }
 
+/// Run `dmidecode -t 17` (via `sudo -n`, falling back to a direct call) and parse
+/// the DIMM slots. Returns an empty vec if `dmidecode` is unavailable or fails.
 pub fn parse_dmidecode() -> Vec<DimmSlot> {
     let output = Command::new("sudo")
         .args(["-n", "dmidecode", "-t", "17"])
@@ -45,6 +92,7 @@ pub fn parse_dmidecode() -> Vec<DimmSlot> {
     parse_dmidecode_output(&text)
 }
 
+/// Parse `dmidecode -t 17` output text into DIMM slots. Slots with zero size are dropped.
 pub fn parse_dmidecode_output(text: &str) -> Vec<DimmSlot> {
     let mut slots: Vec<DimmSlot> = Vec::new();
     let mut current: Option<DimmSlot> = None;
@@ -88,7 +136,8 @@ pub fn parse_dmidecode_output(text: &str) -> Vec<DimmSlot> {
     slots
 }
 
-/// Parse Physical Memory Array (dmidecode -t 16) for total slots and max capacity.
+/// Run `dmidecode -t 16` (via `sudo -n`, falling back to a direct call) and parse
+/// the Physical Memory Array for total slot count and max capacity.
 pub fn parse_dmidecode_array() -> MemArrayInfo {
     let output = Command::new("sudo")
         .args(["-n", "dmidecode", "-t", "16"])
@@ -103,6 +152,7 @@ pub fn parse_dmidecode_array() -> MemArrayInfo {
     parse_dmidecode_array_output(&text)
 }
 
+/// Parse `dmidecode -t 16` output text into a [`MemArrayInfo`] (slot count, max capacity).
 pub fn parse_dmidecode_array_output(text: &str) -> MemArrayInfo {
     let mut info = MemArrayInfo::default();
 
@@ -208,8 +258,10 @@ fn read_vcgencmd_voltage() -> Option<String> {
     if volt.is_empty() { None } else { Some(volt) }
 }
 
-/// Read DIMM temperatures from hwmon. Returns a Vec of (label, celsius).
-pub fn read_ram_temps() -> Vec<(String, f64)> {
+/// Read DIMM temperatures from `/sys/class/hwmon`. Returns a [`TempReading`] per
+/// sensor. DDR5 modules expose temperatures via the `spd5118` driver; DDR4 does
+/// not, so this is commonly empty.
+pub fn read_ram_temps() -> Vec<TempReading> {
     let mut results = Vec::new();
     let hwmon_base = "/sys/class/hwmon";
 
@@ -256,7 +308,7 @@ pub fn read_ram_temps() -> Vec<(String, f64)> {
                 .unwrap_or(0);
 
             if raw > 0 {
-                results.push((label, raw as f64 / 1000.0));
+                results.push(TempReading { label, celsius: raw as f64 / 1000.0 });
             }
         }
     }
@@ -302,6 +354,8 @@ pub fn top_mem_consumers(n: usize) -> Vec<ProcessMem> {
 // ─── Motherboard ──────────────────────────────────────────────────────────────
 
 
+/// Run `dmidecode -t 2` (via `sudo -n`, falling back to a direct call) and parse
+/// motherboard identification. Returns default (empty) info on failure.
 pub fn read_mobo_info() -> MoboInfo {
     let output = Command::new("sudo")
         .args(["-n", "dmidecode", "-t", "2"])
@@ -316,6 +370,7 @@ pub fn read_mobo_info() -> MoboInfo {
     parse_mobo_output(&text)
 }
 
+/// Parse `dmidecode -t 2` output text into a [`MoboInfo`].
 pub fn parse_mobo_output(text: &str) -> MoboInfo {
     let mut info = MoboInfo::default();
     for line in text.lines() {
