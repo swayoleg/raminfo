@@ -1,9 +1,12 @@
-//! `raminfo` — a Linux RAM inspection library.
+//! `raminfo` — a cross-platform RAM inspection library.
 //!
 //! This crate powers the `raminfo` CLI but is usable on its own to read
-//! memory-related system data on Linux. It parses `/proc/meminfo`,
-//! `/proc/*/status`, `/sys/class/hwmon/`, and `dmidecode`/`vcgencmd` output into
-//! plain, serializable data structures.
+//! memory-related system data. Each OS has its own parser backend under
+//! [`parsers`]: Linux reads `/proc/meminfo`, `/proc/*/status`,
+//! `/sys/class/hwmon/`, and `dmidecode`/`vcgencmd` output; macOS uses
+//! `sysctl`, `vm_stat`, `ps`, and `system_profiler`; Windows queries CIM
+//! classes via PowerShell. All backends produce the same plain, serializable
+//! data structures.
 //!
 //! The simplest entry point is [`parsers::collect_snapshot`], which returns a
 //! [`types::Snapshot`] bundling every data source in one call. All parsers
@@ -26,7 +29,9 @@
 //!
 //! # Platform
 //!
-//! Linux only. On other platforms the parsers return empty/default data.
+//! Linux is fully supported; macOS and Windows are supported via their native
+//! tooling (no extra dependencies). On any other OS the collectors return
+//! empty/default data — they never panic.
 
 pub mod types;
 pub mod format;

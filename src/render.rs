@@ -202,6 +202,43 @@ pub fn render_monitor(s: &Snapshot) {
     println!();
 }
 
+/// Render the compact `free -m`-style summary — the default output when running
+/// without root privileges.
+///
+/// Prints a Mem/Swap table in megabytes (matching `free -m` column semantics:
+/// `used` = total − free − buff/cache), a colored usage bar, and a footer hint
+/// pointing at `--full` for the advanced report.
+pub fn render_short(s: &MemStats) {
+    let mb = |kb: u64| kb / 1024;
+    let buff_cache_kb = s.buffers_kb + s.cached_kb;
+    let used_kb = s.total_kb
+        .saturating_sub(s.free_kb)
+        .saturating_sub(buff_cache_kb);
+    let swap_used_kb = s.swap_total_kb.saturating_sub(s.swap_free_kb);
+
+    let header = format!("  {:<6}{:>10}{:>10}{:>10}{:>12}{:>12}",
+                         "MB", "total", "used", "free", "buff/cache", "available");
+    println!();
+    println!("{}", header.dimmed());
+    println!("  {:<6}{:>10}{:>10}{:>10}{:>12}{:>12}",
+             "Mem:".bold(),
+             mb(s.total_kb), mb(used_kb), mb(s.free_kb),
+             mb(buff_cache_kb), mb(s.available_kb));
+    if s.swap_total_kb > 0 {
+        println!("  {:<6}{:>10}{:>10}{:>10}",
+                 "Swap:".bold(),
+                 mb(s.swap_total_kb), mb(swap_used_kb), mb(s.swap_free_kb));
+    }
+
+    let in_use_kb = s.total_kb.saturating_sub(s.available_kb);
+    let pct = if s.total_kb > 0 { in_use_kb * 100 / s.total_kb } else { 0 };
+    println!();
+    println!("  {}  {:>3}% in use", bar(in_use_kb, s.total_kb, 44), pct);
+    println!();
+    println!("  {}", "Run 'raminfo --full' for the advanced report — hardware, temperatures, top consumers (default when run with sudo)".dimmed());
+    println!();
+}
+
 pub fn render_mem_stats(s: &MemStats, dimms: &[DimmSlot]) {
     let bar_w   = 36usize;
     let box_w   = bar_w + 34;

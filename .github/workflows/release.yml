@@ -1,0 +1,73 @@
+name: Release
+
+# Builds binaries for every supported platform when a version tag is pushed
+# (e.g. `git push origin v0.3.0`) and attaches them to the GitHub Release.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            aarch64-unknown-linux-gnu,
+            aarch64-unknown-linux-musl,
+            armv7-unknown-linux-gnueabihf,
+            armv7-unknown-linux-musleabihf
+      - name: Install cross linkers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+      - name: Build all Linux targets
+        run: |
+          cargo build --release
+          cp target/release/raminfo raminfo-x86_64-linux
+          cargo build --release --target aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/raminfo raminfo-aarch64-linux
+          cargo build --release --target aarch64-unknown-linux-musl
+          cp target/aarch64-unknown-linux-musl/release/raminfo raminfo-aarch64-linux-static
+          cargo build --release --target armv7-unknown-linux-gnueabihf
+          cp target/armv7-unknown-linux-gnueabihf/release/raminfo raminfo-armv7-linux
+          cargo build --release --target armv7-unknown-linux-musleabihf
+          cp target/armv7-unknown-linux-musleabihf/release/raminfo raminfo-armv7-linux-static
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: raminfo-*-linux*
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin, aarch64-apple-darwin
+      - name: Build both macOS architectures
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cp target/aarch64-apple-darwin/release/raminfo raminfo-aarch64-macos
+          cargo build --release --target x86_64-apple-darwin
+          cp target/x86_64-apple-darwin/release/raminfo raminfo-x86_64-macos
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: raminfo-*-macos
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows binary
+        run: |
+          cargo build --release
+          copy target\release\raminfo.exe raminfo-x86_64-windows.exe
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: raminfo-x86_64-windows.exe
