@@ -19,7 +19,8 @@ pub fn fmt_kb(kb: u64) -> String {
 pub fn bar(used: u64, total: u64, width: usize) -> String {
     if total == 0 { return "─".repeat(width); }
     let pct = used as f64 / total as f64;
-    let filled = (pct * width as f64).round() as usize;
+    // Clamp so used > total can never draw past the requested width.
+    let filled = ((pct * width as f64).round() as usize).min(width);
     let empty  = width.saturating_sub(filled);
     let filled_s = "█".repeat(filled);
     let empty_s  = "░".repeat(empty);

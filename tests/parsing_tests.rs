@@ -332,3 +332,59 @@ fn parse_mobo_empty_input() {
     assert!(info.manufacturer.is_empty());
     assert!(info.product.is_empty());
 }
+
+// ─── Defensive parsing edge cases ────────────────────────────────────────────
+
+#[test]
+fn parse_meminfo_garbage_values_become_zero() {
+    let content = "\
+MemTotal:       not-a-number kB
+MemFree:
+MemAvailable:   13631488 kB
+";
+    let s = parse_meminfo_content(content);
+    assert_eq!(s.total_kb, 0);
+    assert_eq!(s.free_kb, 0);
+    assert_eq!(s.available_kb, 13631488);
+}
+
+#[test]
+fn parse_dmidecode_unknown_speed_and_voltage() {
+    // Some boards report "Unknown" for speeds/voltage — must parse to 0/kept string.
+    let text = "\
+Memory Device
+\tSize: 8192 MB
+\tLocator: DIMM_A1
+\tType: DDR4
+\tSpeed: Unknown
+\tConfigured Memory Speed: Unknown
+\tConfigured Voltage: Unknown
+";
+    let slots = parse_dmidecode_output(text);
+    assert_eq!(slots.len(), 1);
+    assert_eq!(slots[0].speed_mhz, 0);
+    assert_eq!(slots[0].configured_speed, 0);
+    assert_eq!(slots[0].voltage, "Unknown");
+}
+
+#[test]
+fn parse_array_garbage_device_count() {
+    let text = "\
+Physical Memory Array
+\tMaximum Capacity: 64 GB
+\tNumber Of Devices: many
+";
+    let info = parse_dmidecode_array_output(text);
+    assert_eq!(info.total_slots, 0);
+    assert_eq!(info.max_capacity_mb, 64 * 1024);
+}
+
+#[test]
+fn parse_cpuinfo_compute_module_4() {
+    let cpuinfo = "\
+processor\t: 0
+Model\t\t: Raspberry Pi Compute Module 4 Rev 1.1
+";
+    let info = parse_cpuinfo_for_pi(cpuinfo).expect("CM4 should be detected");
+    assert_eq!(info.mem_type, "LPDDR4");
+}
