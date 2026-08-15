@@ -84,3 +84,18 @@ fn temp_colored_contains_value() {
     let hot = temp_colored(90.0);
     assert!(hot.to_string().contains("90.0°C"));
 }
+
+#[test]
+fn bar_overfull_is_clamped_to_width() {
+    // used > total must never draw past the requested width (box alignment
+    // depends on it) — the filled section is clamped, leaving no empty cells.
+    let b = bar(150, 100, 10);
+    assert_eq!(b.matches('█').count(), 10);
+    assert_eq!(b.matches('░').count(), 0);
+}
+
+#[test]
+fn fmt_zero_values() {
+    assert_eq!(fmt_size(0), "0 MB");
+    assert_eq!(fmt_kb(0), "0 MB");
+}
