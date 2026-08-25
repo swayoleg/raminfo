@@ -1,14 +1,101 @@
 # raminfo
 
 ![CI](https://github.com/swayoleg/raminfo/actions/workflows/ci.yml/badge.svg)
-![Linux only](https://img.shields.io/badge/platform-linux-blue)
+![Platforms](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
 
 [Install](#install) · [Usage](#usage) · [Testing](#testing) · [Roadmap](#roadmap--todo) · [Contributing](CONTRIBUTING.md)
 
-A minimal RAM inspection tool for Linux. Shows DIMM slot details (model, vendor, frequency), memory usage stats and top consumers — in a clean, `btop`-style TUI.
-Raspberry Pi supported. 
-> **Linux only.** Requires `/proc`, `/sys/class/hwmon`, and `dmidecode`.
+A RAM inspection tool for Linux, macOS and Windows. Shows DIMM slot details (model, vendor, frequency), memory usage stats, RAM temperatures and top consumers.
+
+Since **0.3.0** the default is a full-screen interactive app (built with [ratatui](https://ratatui.rs)) with four tabs — Overview, Hardware, Processes, Temps — live gauges and sparkline history. Pipe or redirect the output and you get the plain text / JSON reports exactly as before, so scripts and `jq` pipelines keep working unchanged.
+
+Raspberry Pi supported.
+
+> DIMM slot / motherboard details need `dmidecode` (Linux, via `sudo`), `system_profiler` (macOS) or WMI (Windows). RAM temperatures are Linux + DDR5 only.
+
+```
+╭ raminfo v0.3.0 ─────────────────────────────────────────────────────────────────|linux · 31.3 GB|╮
+│(1)Overview  (2)Hardware  (3)Processes  (4)Temps                                    q:quit  ?:help│
+│╭────────────────────────────────────────────|Memory|╮╭──────────────────────────|Used % history|╮│
+││ MB     total  used  free   buff/cache  available   ││                              ▂▃▃▄▄▅▅▅▆▆▇█││
+││ Mem:    32075 20821   2941        8312       13312 ││                          ▁▂▂▃▄████████████││
+││ Swap:   16384  2929  13454                         ││                    ▁▂▃▄▅▆████████████████││
+│╰────────────────────────────────────────────────────╯│ ▄▄▅▅▅▆▆▆▇▇███████████████████████████████││
+│╭─────────────────────────────────────────|Breakdown|╮│ █████████████████████████████████████████││
+││ Used          18.3 GB  ██████████████████░░░░░░░░░ ││ █████████████████████████████████████████││
+││ Available     13.0 GB                              │╰──────────────────────────────────────────╯│
+││ Free           2.9 GB                              │╭─────────────────────────────────|Summary|╮│
+││ Buffers        500 MB                              ││ In use        18.3 GB  (58%)             ││
+││ Cached         7.6 GB                              ││ Available     13.0 GB                    ││
+││ Swap used      2.9 GB  █████░░░░░░░░░░░░░░░░░░░░░░ ││ Top process   chrome (2.4 GB)            ││
+││ Swap total    16.0 GB                              ││ Max temp      44.5°C                     ││
+│╰────────────────────────────────────────────────────╯│ Modules       2 × 16 GB                  ││
+│╭───────────────────────────────────────────────|RAM|╮│                                          ││
+││ ██████████████18.3 GB / 31.3 GB  58%               ││                                          ││
+│╰────────────────────────────────────────────────────╯│                                          ││
+│╭──────────────────────────────────────────────|Swap|╮│                                          ││
+││ █████████     2.9 GB / 16.0 GB  18%                ││                                          ││
+│╰────────────────────────────────────────────────────╯╰──────────────────────────────────────────╯│
+│refresh 2s  •  updates 6  •  1-4/Tab tabs  •  r refresh  •  +/- rate  •  ? help                   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+<details>
+<summary><b>Hardware</b>, <b>Processes</b> and <b>Temps</b> tabs</summary>
+
+```
+│╭────────────────────────────────────────────────────────────────────────────────────|DIMM Slots|╮│
+││ Slot             Part Number           Vendor         Size Type    Max MT/s  Cfg MT/s  Voltage ││
+││ ChannelA-DIMM0   M471A2G43CB2-CWE      Samsung       16 GB DDR4        3200      3200    1.2 V ││
+││ ChannelB-DIMM0   M471A2G43CB2-CWE      Samsung       16 GB DDR4        3200      3200    1.2 V ││
+│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
+│╭────────────────────────────────────────────────────────────────────────────────────────|System|╮│
+││ Slots         2 used / 4 total  ●●○○                                                           ││
+││ Max capacity  64 GB (32 GB free)                                                               ││
+││ Motherboard   Gigabyte Z390-AORUS                                                              ││
+│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
+
+│╭─────────────────────────────────────────────────────────────────────────────────|Top Consumers|╮│
+││     #      PID Process                                               RSS  Share                ││
+││ ▌  1.     1234 chrome                                             2.4 GB     8% █░░░░░░░░░░░░░ ││
+││    2.     4321 rust-analyzer                                      878 MB     3% ░░░░░░░░░░░░░░ ││
+│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
+
+│╭──────────────────────────────────────────────────────────────────────────────|RAM Temperatures|╮│
+││ Sensor                                                              Temp  Level                ││
+││ spd5118 DIMM 0                                                    42.5°C  ███░░░░░░░░░░░░░░░░░ ││
+││ spd5118 DIMM 1                                                    44.5°C  ████░░░░░░░░░░░░░░░░ ││
+│╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
+```
+
+</details>
+
+## Keys
+
+| Key | Action |
+|---|---|
+| `1` `2` `3` `4` | Jump to Overview / Hardware / Processes / Temps |
+| `Tab` / `→`, `Shift+Tab` / `←` | Cycle tabs forward / back |
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | Scroll the process list |
+| `r` | Refresh now |
+| `+` / `-` | Slower / faster refresh (1–60 s) |
+| `?` | Toggle the help overlay |
+| `q` / `Esc` / `Ctrl+C` | Quit |
+
+## Non-interactive output
+
+The interactive app only starts when stdout is a terminal *and* no output mode was requested. Everything below is unchanged from 0.2.x:
+
+```bash
+raminfo | cat                  # short free(1)-style summary
+raminfo --short                # same, explicitly
+raminfo --full                 # full one-shot report (DIMM table, temps, consumers)
+raminfo --json                 # one compact JSON object
+raminfo --monitor --json       # ndjson stream, one object per refresh
+```
+
+## The classic one-shot report (`--full`)
 
 ```
   DIMM Slots
@@ -102,6 +189,9 @@ Or in RaspberryPi
 ```
 
 ## Screenshot
+
+> **Note:** the screenshots below show the **0.2.x** one-shot report, not the new
+> interactive app introduced in 0.3.0. They are still accurate for `raminfo --full`.
 
 ![raminfo screenshot](assets/screenshot.png)
 ![raminfo screenshot](assets/screenshot-raspberry.png)
@@ -226,8 +316,9 @@ your_user ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
 # Usage
 
 ```bash
-sudo raminfo        # full output including DIMM hardware details
-raminfo             # memory stats and top consumers (no sudo needed)
+raminfo             # interactive app (full-screen, four tabs)
+sudo raminfo        # same, with DIMM slot / motherboard details filled in
+raminfo | cat       # not a terminal → plain short summary instead
 ```
 
 DIMM slot info requires `sudo` to call `dmidecode`. For passwordless use, add to `/etc/sudoers`:
@@ -239,15 +330,33 @@ your_user ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
 
 | Flag | Description |
 |---|---|
-| `--json` | Print a single JSON snapshot instead of the TUI (for scripting / `jq`) |
-| `--monitor` | Continuously refresh the dynamic sections (memory usage, temps, top consumers) — redraws the TUI in place each cycle (uses the alternate screen buffer like `htop`/`btop`; restores your terminal on Ctrl+C) |
-| `--interval <seconds>` | Refresh rate for `--monitor` mode (default: `2`, minimum `1`). Also accepts `--interval=<seconds>` |
+| *(none)* | Interactive app when stdout is a terminal; short plain summary when it is not |
+| `--tui` | Force the interactive app. Errors out (exit `1`) if stdout is not a terminal |
+| `--short` | Compact `free -m`-style summary, never interactive |
+| `--full` | Full one-shot report (DIMM table, upgrade potential, temps, consumers), never interactive |
+| `--json` | Print a single full JSON snapshot and exit (for scripting / `jq`) |
+| `--monitor` | Keep refreshing. On a terminal this is the interactive app; with `--json` it is an ndjson stream; piped without `--json` it repeats the plain dynamic report |
+| `--interval <seconds>` | Refresh / tick rate (default: `2`, minimum `1`). Also accepts `--interval=<seconds>`. Adjustable at runtime with `+`/`-` |
 | `-h`, `--help` | Print usage and exit |
+
+`--tui` is mutually exclusive with `--short`, `--full` and `--json`; `--short`
+and `--full` remain mutually exclusive with each other.
+
+### What runs where
+
+| Invocation | stdout is a terminal | stdout is piped / redirected |
+|---|---|---|
+| `raminfo` | interactive app | short summary (full when run as root) |
+| `raminfo --tui` | interactive app | error, exit `1` |
+| `raminfo --monitor` | interactive app | repeating plain report |
+| `raminfo --short` / `--full` | plain report | plain report |
+| `raminfo --json` | one JSON object | one JSON object |
+| `raminfo --monitor --json` | ndjson stream | ndjson stream |
 
 ```bash
 raminfo --json | jq                       # single JSON object (full snapshot)
 raminfo --json | jq '.mem.total_kb'       # pick out one field
-raminfo --monitor                         # live-refreshing TUI
+raminfo --monitor                         # interactive app, refreshing live
 raminfo --monitor --interval 5            # refresh every 5 seconds
 raminfo --monitor --json | jq -c .        # ndjson stream, one object per refresh
 
@@ -361,7 +470,11 @@ cargo test --test format_tests    # formatting helpers only
 cargo test --test parsing_tests   # parser logic only
 ```
 
-Tests live in the `tests/` directory and cover formatting utilities (`format.rs`), all parsing logic (`parsers.rs`), and JSON output (`json.rs`) using mock system data. Argument parsing is unit-tested inline in `main.rs`. The `src/lib.rs` file also exposes the crate as a reusable [library](#library).
+Tests live in the `tests/` directory and cover formatting utilities (`format.rs`), all parsing logic (per-platform `parsers/`), JSON output (`json.rs`) and the interactive app's rendering (`tui_tests.rs`, which draws every tab from a mock snapshot onto a `ratatui` `TestBackend` and asserts on the resulting text). Argument parsing and the TUI state machine / ring buffer are unit-tested inline in `main.rs` and `src/tui/`. The `src/lib.rs` file also exposes the crate as a reusable [library](#library).
+
+```bash
+cargo test --test tui_tests       # interactive app rendering only
+```
 
 # Roadmap / TODO
 
@@ -370,12 +483,15 @@ Tests live in the `tests/` directory and cover formatting utilities (`format.rs`
 - [x] `--interval <seconds>` — refresh rate for monitor mode (default: 2s)
 - [x] `--monitor --json` — newline-delimited JSON stream (ndjson)
 - [x] `--json` — single-shot JSON output for scripting and piping to `jq`
-- [ ] Windows support via WMI (`Win32_PhysicalMemory`, `Win32_OperatingSystem`)
+- [x] Windows support via WMI (`Win32_PhysicalMemory`, `Win32_OperatingSystem`)
+- [x] macOS support (`sysctl`, `vm_stat`, `system_profiler`)
+- [x] Interactive full-screen app (ratatui) with tabs, gauges and sparkline history
 - [x] Refactor into lib + binary — expose core parsing as a reusable library crate
 
 # Dependencies
 
 - [`colored`](https://crates.io/crates/colored) — terminal colors
 - [`serde`](https://crates.io/crates/serde) / [`serde_json`](https://crates.io/crates/serde_json) — JSON output (`--json`) and serializable data structures
-- [`ctrlc`](https://crates.io/crates/ctrlc) — restore the terminal on Ctrl+C in `--monitor` mode
+- [`ratatui`](https://crates.io/crates/ratatui) — the interactive full-screen app (uses its bundled `crossterm` backend; no separate dependency)
+- [`ctrlc`](https://crates.io/crates/ctrlc) — restore the terminal on Ctrl+C in the plain `--monitor` loop
 - `dmidecode` — system package, required for DIMM slot details, will ignore dim slots if not installed

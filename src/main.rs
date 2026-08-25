@@ -6,6 +6,7 @@ use std::time::Duration;
 use raminfo::json;
 use raminfo::parsers::{collect_dynamic, collect_mem_stats, collect_snapshot};
 use raminfo::render::{render_monitor, render_short, render_snapshot};
+use raminfo::tui;
 
 // ─── CLI ────────────────────────────────────────────────────────────────────────
 
@@ -15,13 +16,23 @@ raminfo — RAM inspector (Linux, macOS, Windows)
 USAGE:
     raminfo [OPTIONS]
 
+With no options and an interactive terminal, raminfo starts a full-screen
+interactive app (tabs: Overview, Hardware, Processes, Temps). When stdout is
+redirected or piped it falls back to the plain text summary instead.
+
 OPTIONS:
-    --short               Compact free(1)-style summary (default without sudo)
-    --full                Full report: hardware, temps, top consumers (default with sudo)
-    --json                Output a single full JSON snapshot instead of the TUI
-    --monitor             Continuously refresh (TUI, or ndjson stream with --json)
-    --interval <seconds>  Refresh rate for --monitor mode (default: 2)
+    --tui                 Force the interactive app (fails if stdout is not a tty)
+    --short               Compact free(1)-style summary (non-interactive)
+    --full                Full one-shot report: hardware, temps, top consumers
+    --json                Output a single full JSON snapshot and exit
+    --monitor             Keep refreshing (interactive app, or ndjson with --json)
+    --interval <seconds>  Refresh rate, in seconds (default: 2, minimum: 1)
     -h, --help            Print this help and exit
+
+KEYS (interactive app):
+    1-4 / Tab / ← →       Switch tab          ↑ ↓ PgUp PgDn Home End   Scroll
+    r                     Refresh now         + / -                    Refresh rate
+    ?                     Help overlay        q / Esc / Ctrl+C         Quit
 
 Run with sudo for DIMM slot / motherboard details (requires dmidecode on Linux).";
 
@@ -41,21 +52,25 @@ struct Cli {
     interval: u64,
     /// Explicitly requested mode; `None` means auto (full as root, short otherwise).
     mode: Option<Mode>,
+    /// `--tui` was given: force the interactive app (an error without a tty).
+    tui: bool,
 }
 
 /// Parse command-line arguments (excluding argv[0]) into a [`Cli`].
 ///
 /// Returns `Err` with a human-readable message on unknown flags, an invalid
-/// `--interval` value, or conflicting `--short`/`--full`. `--help`/`-h` is
-/// handled by the caller before this runs.
+/// `--interval` value, conflicting `--short`/`--full`, or `--tui` combined with
+/// any non-interactive output mode. `--help`/`-h` is handled by the caller
+/// before this runs.
 fn parse_args(args: &[String]) -> Result<Cli, String> {
-    let mut cli = Cli { json: false, monitor: false, interval: 2, mode: None };
+    let mut cli = Cli { json: false, monitor: false, interval: 2, mode: None, tui: false };
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
         match arg {
             "--json" => cli.json = true,
             "--monitor" => cli.monitor = true,
+            "--tui" => cli.tui = true,
             "--short" => set_mode(&mut cli, Mode::Short)?,
             "--full" => set_mode(&mut cli, Mode::Full)?,
             "--interval" => {
@@ -74,6 +89,15 @@ fn parse_args(args: &[String]) -> Result<Cli, String> {
         }
         i += 1;
     }
+
+    // The interactive app and the non-interactive outputs are exclusive.
+    if cli.tui && cli.json {
+        return Err("--tui and --json are mutually exclusive".to_string());
+    }
+    if cli.tui && cli.mode.is_some() {
+        return Err("--tui cannot be combined with --short or --full".to_string());
+    }
+
     Ok(cli)
 }
 
@@ -134,17 +158,43 @@ fn main() {
         }
     };
 
-    if cli.monitor {
+    let tty = io::stdout().is_terminal();
+
+    if cli.tui && !tty {
+        eprintln!("raminfo: --tui requires an interactive terminal (stdout is not a tty)");
+        eprintln!("Use --short, --full or --json when redirecting output.");
+        exit(1);
+    }
+
+    if cli.json {
+        // Machine-readable output is never interactive and never changes:
+        // --monitor --json is the ndjson stream, --json a single snapshot.
+        if cli.monitor {
+            run_monitor(&cli);
+        } else {
+            // JSON output is always the full snapshot regardless of mode.
+            println!("{}", json::to_json(&collect_snapshot()));
+        }
+    } else if cli.tui || (tty && cli.mode.is_none()) {
+        // Interactive app: the new default on a terminal, with or without
+        // --monitor (--interval sets its tick rate).
+        run_tui(&cli);
+    } else if cli.monitor {
         run_monitor(&cli);
-    } else if cli.json {
-        // JSON output is always the full snapshot regardless of mode.
-        println!("{}", json::to_json(&collect_snapshot()));
     } else {
         let mode = cli.mode.unwrap_or(if is_root() { Mode::Full } else { Mode::Short });
         match mode {
             Mode::Short => render_short(&collect_mem_stats()),
             Mode::Full => render_snapshot(&collect_snapshot()),
         }
+    }
+}
+
+/// Start the interactive ratatui app, reporting terminal errors on stderr.
+fn run_tui(cli: &Cli) {
+    if let Err(e) = tui::run(Duration::from_secs(cli.interval)) {
+        eprintln!("raminfo: terminal error: {e}");
+        exit(1);
     }
 }
 
@@ -214,7 +264,10 @@ mod tests {
     #[test]
     fn defaults() {
         let cli = parse_args(&args(&[])).unwrap();
-        assert_eq!(cli, Cli { json: false, monitor: false, interval: 2, mode: None });
+        assert_eq!(
+            cli,
+            Cli { json: false, monitor: false, interval: 2, mode: None, tui: false }
+        );
     }
 
     #[test]
@@ -278,5 +331,40 @@ mod tests {
     #[test]
     fn unknown_flag_rejected() {
         assert!(parse_args(&args(&["--bogus"])).is_err());
+    }
+
+    #[test]
+    fn tui_flag() {
+        let cli = parse_args(&args(&["--tui"])).unwrap();
+        assert!(cli.tui);
+        assert_eq!(cli.mode, None);
+    }
+
+    #[test]
+    fn tui_allows_monitor_and_interval() {
+        let cli = parse_args(&args(&["--tui", "--monitor", "--interval=5"])).unwrap();
+        assert!(cli.tui);
+        assert!(cli.monitor);
+        assert_eq!(cli.interval, 5);
+    }
+
+    #[test]
+    fn tui_conflicts_with_json() {
+        assert!(parse_args(&args(&["--tui", "--json"])).is_err());
+        assert!(parse_args(&args(&["--json", "--tui"])).is_err());
+    }
+
+    #[test]
+    fn tui_conflicts_with_short_and_full() {
+        assert!(parse_args(&args(&["--tui", "--short"])).is_err());
+        assert!(parse_args(&args(&["--short", "--tui"])).is_err());
+        assert!(parse_args(&args(&["--tui", "--full"])).is_err());
+        assert!(parse_args(&args(&["--full", "--tui"])).is_err());
+    }
+
+    #[test]
+    fn tui_repeated_is_ok() {
+        let cli = parse_args(&args(&["--tui", "--tui"])).unwrap();
+        assert!(cli.tui);
     }
 }
