@@ -28,11 +28,11 @@ use crate::types::Snapshot;
 /// Dispatches to [`linux`], [`macos`], or [`windows`] at compile time. On any
 /// other OS this returns an all-default snapshot.
 #[cfg(target_os = "linux")]
-pub use linux::{collect_dynamic, collect_snapshot};
+pub use linux::{collect_dynamic, collect_dynamic_top, collect_snapshot};
 #[cfg(target_os = "macos")]
-pub use macos::{collect_dynamic, collect_snapshot};
+pub use macos::{collect_dynamic, collect_dynamic_top, collect_snapshot};
 #[cfg(target_os = "windows")]
-pub use windows::{collect_dynamic, collect_snapshot};
+pub use windows::{collect_dynamic, collect_dynamic_top, collect_snapshot};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub fn collect_snapshot() -> Snapshot {
@@ -41,6 +41,12 @@ pub fn collect_snapshot() -> Snapshot {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub fn collect_dynamic() -> Snapshot {
+    Snapshot::default()
+}
+
+/// Like [`collect_dynamic`] but with `n` top consumers (`usize::MAX` = all).
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+pub fn collect_dynamic_top(_n: usize) -> Snapshot {
     Snapshot::default()
 }
 

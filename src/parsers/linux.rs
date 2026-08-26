@@ -39,10 +39,16 @@ pub fn collect_snapshot() -> Snapshot {
 /// between refreshes, and re-running `dmidecode` (a sudo subprocess) every cycle
 /// is wasteful, so this skips it entirely.
 pub fn collect_dynamic() -> Snapshot {
+    collect_dynamic_top(10)
+}
+
+/// Like [`collect_dynamic`] but with `n` top consumers (`usize::MAX` = every
+/// process with a resident set), sorted by RSS descending.
+pub fn collect_dynamic_top(n: usize) -> Snapshot {
     Snapshot {
         mem: parse_proc_meminfo(),
         temps: read_ram_temps(),
-        top_consumers: top_mem_consumers(10),
+        top_consumers: top_mem_consumers(n),
         ..Default::default()
     }
 }

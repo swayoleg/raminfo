@@ -38,3 +38,4 @@ pub mod format;
 pub mod parsers;
 pub mod render;
 pub mod json;
+pub mod tui;
