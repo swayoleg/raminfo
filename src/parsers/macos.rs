@@ -42,9 +42,15 @@ pub fn collect_snapshot() -> Snapshot {
 /// refreshes, and re-running `system_profiler` (a slow subprocess) every cycle
 /// is wasteful, so this skips it entirely.
 pub fn collect_dynamic() -> Snapshot {
+    collect_dynamic_top(10)
+}
+
+/// Like [`collect_dynamic`] but with `n` top consumers (`usize::MAX` = every
+/// process), sorted by RSS descending.
+pub fn collect_dynamic_top(n: usize) -> Snapshot {
     Snapshot {
         mem: collect_mem_stats(),
-        top_consumers: top_mem_consumers(10),
+        top_consumers: top_mem_consumers(n),
         ..Default::default()
     }
 }

@@ -4,7 +4,7 @@
 //! ([`app::App`]) and the rendering ([`ui::draw`]) are pure and unit/render
 //! tested. Static hardware data (DIMMs, memory array, motherboard, Raspberry Pi
 //! board) is collected exactly once at startup — only
-//! [`collect_dynamic`](crate::parsers::collect_dynamic) runs on each tick, so
+//! [`collect_dynamic_top`](crate::parsers::collect_dynamic_top) runs on each tick, so
 //! `dmidecode` / WMI are never re-queried while the app is open.
 
 pub mod app;
@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
-use crate::parsers::{collect_dynamic, collect_snapshot};
+use crate::parsers::{collect_dynamic_top, collect_snapshot};
 
 use app::App;
 
@@ -67,7 +67,7 @@ fn event_loop(mut terminal: DefaultTerminal, app: &mut App) -> io::Result<()> {
         if app.force_refresh || last_tick.elapsed() >= app.interval {
             app.force_refresh = false;
             last_tick = Instant::now();
-            app.apply_dynamic(collect_dynamic());
+            app.apply_dynamic(collect_dynamic_top(usize::MAX));
         }
     }
 

@@ -85,9 +85,15 @@ pub fn collect_snapshot() -> Snapshot {
 /// between refreshes, and re-running the WMI hardware queries every cycle is
 /// wasteful, so this skips them entirely.
 pub fn collect_dynamic() -> Snapshot {
+    collect_dynamic_top(10)
+}
+
+/// Like [`collect_dynamic`] but with `n` top consumers (`usize::MAX` = every
+/// process), sorted by working set descending.
+pub fn collect_dynamic_top(n: usize) -> Snapshot {
     Snapshot {
         mem: collect_mem_stats(),
-        top_consumers: collect_top_consumers(10),
+        top_consumers: collect_top_consumers(n),
         ..Default::default()
     }
 }
@@ -144,8 +150,11 @@ fn collect_mobo() -> MoboInfo {
 /// Query `Get-Process` for the top memory consumers by working set.
 /// Returns an empty vec if PowerShell is unavailable.
 fn collect_top_consumers(n: usize) -> Vec<ProcessMem> {
-    let script = r#"Get-Process | Sort-Object WS -Descending | Select-Object -First 15 | ForEach-Object { "Id=$($_.Id)"; "Name=$($_.Name)"; "WS=$($_.WS)"; "---" }"#;
-    match run_powershell(script) {
+    let first = if n == usize::MAX { String::new() } else { format!("Select-Object -First {} | ", n.max(15)) };
+    let script = format!(
+        r#"Get-Process | Sort-Object WS -Descending | {first}ForEach-Object {{ "Id=$($_.Id)"; "Name=$($_.Name)"; "WS=$($_.WS)"; "---" }}"#
+    );
+    match run_powershell(&script) {
         Some(text) => parse_process_list(&text, n),
         None => Vec::new(),
     }

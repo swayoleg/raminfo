@@ -11,7 +11,7 @@ use std::time::Duration;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::TableState;
 
-use crate::types::Snapshot;
+use crate::types::{ProcessMem, Snapshot};
 
 use super::history::History;
 
@@ -74,6 +74,8 @@ pub struct App {
     pub quit: bool,
     /// Whether the help overlay is visible.
     pub show_help: bool,
+    /// Processes tab: aggregate rows by process name (toggled with `g`).
+    pub grouped: bool,
     /// Set by `r`; the event loop refreshes immediately and clears it.
     pub force_refresh: bool,
     /// RAM usage percentage (0–100) over the last [`HISTORY_LEN`] ticks.
@@ -104,6 +106,7 @@ impl App {
             interval: floor_interval(interval),
             quit: false,
             show_help: false,
+            grouped: false,
             force_refresh: false,
             used_history: History::new(HISTORY_LEN),
             temp_history: History::new(HISTORY_LEN),
@@ -117,6 +120,12 @@ impl App {
 
     /// Merge a freshly collected dynamic snapshot (`mem`, `temps`,
     /// `top_consumers`) into the state, keeping the static hardware data.
+    /// True when DIMM / motherboard details are missing and this is not a
+    /// Raspberry Pi — i.e. the hardware tab would be populated under sudo.
+    pub fn needs_sudo(&self) -> bool {
+        self.snapshot.pi.is_none() && self.snapshot.dimms.is_empty()
+    }
+
     pub fn apply_dynamic(&mut self, dynamic: Snapshot) {
         self.snapshot.mem = dynamic.mem;
         self.snapshot.temps = dynamic.temps;
@@ -128,15 +137,34 @@ impl App {
 
     /// Push the current usage / temperature samples onto the sparkline rings.
     fn record_history(&mut self) {
-        self.used_history.push((self.used_ratio() * 100.0).round() as u64);
+        // Stored in tenths of a percent so small drifts are visible when the
+        // sparkline auto-scales to the observed range.
+        self.used_history.push((self.used_ratio() * 1000.0).round() as u64);
         if let Some(max) = self.max_temp() {
             self.temp_history.push(max.round().max(0.0) as u64);
         }
     }
 
     /// Keep the process-table selection inside the current row count.
+    /// Number of rows the Processes tab currently shows (grouped or flat).
+    pub fn row_count(&self) -> usize {
+        if self.grouped {
+            group_by_name(&self.snapshot.top_consumers).len()
+        } else {
+            self.snapshot.top_consumers.len()
+        }
+    }
+
+    /// Toggle grouping by process name and reset the selection to the top.
+    pub fn toggle_grouped(&mut self) {
+        self.grouped = !self.grouped;
+        self.table_state.get_mut().select(Some(0));
+        *self.table_state.get_mut().offset_mut() = 0;
+        self.clamp_selection();
+    }
+
     fn clamp_selection(&mut self) {
-        let len = self.snapshot.top_consumers.len();
+        let len = self.row_count();
         let state = self.table_state.get_mut();
         match state.selected() {
             _ if len == 0 => state.select(None),
@@ -235,7 +263,10 @@ impl App {
         }
 
         match key.code {
+            // Esc closes the help overlay first; only a second Esc quits.
+            KeyCode::Esc if self.show_help => self.show_help = false,
             KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => self.quit = true,
+            KeyCode::Char('g') | KeyCode::Char('G') => self.toggle_grouped(),
             KeyCode::Char('?') | KeyCode::Char('h') | KeyCode::F(1) => {
                 self.show_help = !self.show_help
             }
@@ -256,7 +287,7 @@ impl App {
     }
 
     fn scroll_down(&mut self, by: u16) {
-        if self.snapshot.top_consumers.is_empty() {
+        if self.row_count() == 0 {
             return;
         }
         let state = self.table_state.get_mut();
@@ -265,7 +296,7 @@ impl App {
     }
 
     fn scroll_up(&mut self, by: u16) {
-        if self.snapshot.top_consumers.is_empty() {
+        if self.row_count() == 0 {
             return;
         }
         let state = self.table_state.get_mut();
@@ -273,19 +304,45 @@ impl App {
     }
 
     fn scroll_home(&mut self) {
-        if self.snapshot.top_consumers.is_empty() {
+        if self.row_count() == 0 {
             return;
         }
         self.table_state.get_mut().select_first();
     }
 
     fn scroll_end(&mut self) {
-        let len = self.snapshot.top_consumers.len();
+        let len = self.row_count();
         if len == 0 {
             return;
         }
         self.table_state.get_mut().select(Some(len - 1));
     }
+}
+
+/// One row of the grouped Processes view: every process sharing a name,
+/// summed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessGroup {
+    pub name: String,
+    pub count: usize,
+    pub rss_kb: u64,
+}
+
+/// Aggregate processes by name (e.g. every `claude` or `chrome` worker into one
+/// row), sorted by total RSS descending, then by name for a stable order.
+pub fn group_by_name(procs: &[ProcessMem]) -> Vec<ProcessGroup> {
+    let mut groups: Vec<ProcessGroup> = Vec::new();
+    for p in procs {
+        match groups.iter_mut().find(|g| g.name == p.name) {
+            Some(g) => {
+                g.count += 1;
+                g.rss_kb = g.rss_kb.saturating_add(p.rss_kb);
+            }
+            None => groups.push(ProcessGroup { name: p.name.clone(), count: 1, rss_kb: p.rss_kb }),
+        }
+    }
+    groups.sort_by(|x, y| y.rss_kb.cmp(&x.rss_kb).then_with(|| x.name.cmp(&y.name)));
+    groups
 }
 
 /// `used / total` as a finite ratio in `0.0..=1.0`.
@@ -316,6 +373,49 @@ fn floor_interval(d: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pm(pid: u32, name: &str, rss_kb: u64) -> ProcessMem {
+        ProcessMem { pid, name: name.to_string(), rss_kb }
+    }
+
+    #[test]
+    fn group_by_name_sums_and_sorts() {
+        let g = group_by_name(&[pm(1, "claude", 500), pm(2, "chrome", 900), pm(3, "claude", 600)]);
+        assert_eq!(g.len(), 2);
+        assert_eq!(g[0], ProcessGroup { name: "claude".into(), count: 2, rss_kb: 1100 });
+        assert_eq!(g[1], ProcessGroup { name: "chrome".into(), count: 1, rss_kb: 900 });
+        assert!(group_by_name(&[]).is_empty());
+    }
+
+    #[test]
+    fn g_toggles_grouping_and_resets_selection() {
+        let mut app = App::new(Snapshot {
+            top_consumers: vec![pm(1, "a", 1), pm(2, "a", 1), pm(3, "b", 1)],
+            ..Default::default()
+        }, Duration::from_secs(2));
+        app.on_key(KeyEvent::from(KeyCode::End));
+        assert_eq!(app.table_state.borrow().selected(), Some(2));
+        app.on_key(KeyEvent::from(KeyCode::Char('g')));
+        assert!(app.grouped);
+        assert_eq!(app.row_count(), 2);
+        assert_eq!(app.table_state.borrow().selected(), Some(0));
+        app.on_key(KeyEvent::from(KeyCode::End));
+        assert_eq!(app.table_state.borrow().selected(), Some(1));
+        app.on_key(KeyEvent::from(KeyCode::Char('g')));
+        assert!(!app.grouped);
+    }
+
+    #[test]
+    fn esc_closes_help_before_quitting() {
+        let mut app = App::new(Snapshot::default(), Duration::from_secs(2));
+        app.on_key(KeyEvent::from(KeyCode::Char('?')));
+        assert!(app.show_help);
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(!app.show_help);
+        assert!(!app.quit, "first Esc only closes the overlay");
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.quit);
+    }
     use crate::types::{MemStats, ProcessMem, TempReading};
     use ratatui::crossterm::event::KeyEventKind;
 
@@ -504,7 +604,7 @@ mod tests {
         assert_eq!(app.updates, 1);
         assert_eq!(app.table_state.borrow().selected(), Some(1), "selection clamped to new len");
         assert_eq!(app.temp_history.last(), Some(44));
-        assert_eq!(app.used_history.last(), Some(90));
+        assert_eq!(app.used_history.last(), Some(900));
     }
 
     #[test]

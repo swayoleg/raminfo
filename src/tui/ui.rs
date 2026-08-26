@@ -18,9 +18,9 @@ use ratatui::widgets::{
 };
 
 use crate::format::{fmt_kb, fmt_size};
-use crate::types::{DimmSlot, MoboInfo, PiBoardInfo, ProcessMem, TempReading};
+use crate::types::{DimmSlot, MoboInfo, PiBoardInfo, TempReading};
 
-use super::app::{App, TAB_TITLES, Tab, ratio};
+use super::app::{App, TAB_TITLES, Tab, group_by_name, ratio};
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +53,17 @@ fn temp_style(c: f64) -> Style {
 }
 
 /// A bordered panel with a netscanner-style right-aligned `|Title|`.
+/// A panel with an extra, impossible-to-miss red hint on the left of its top border.
+fn panel_with_hint(title: &str, hint: &str) -> Block<'static> {
+    panel(title).title_top(
+        Line::from(Span::styled(
+            format!(" {hint} "),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ))
+        .left_aligned(),
+    )
+}
+
 fn panel(title: &str) -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
@@ -190,13 +201,21 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let dot = Span::styled("  •  ", Style::default().fg(BORDER));
-    let line = Line::from(vec![
+    let dot = Span::styled(" • ", Style::default().fg(BORDER));
+    let mut spans = Vec::new();
+    if app.needs_sudo() {
+        spans.push(sudo_span());
+        spans.push(dot.clone());
+    }
+    spans.extend([
         label(&format!("refresh {}s", app.interval_secs())),
         dot.clone(),
-        label(&format!("updates {}", app.updates)),
+        label("1-4 tabs"),
         dot.clone(),
-        label("1-4/Tab tabs"),
+        Span::styled(
+            if app.grouped { "g ungroup" } else { "g group" },
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
         dot.clone(),
         label("r refresh"),
         dot.clone(),
@@ -204,7 +223,14 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         dot,
         label("? help"),
     ]);
-    frame.render_widget(Paragraph::new(line), area);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The notice shown wherever hardware details are missing for lack of privileges.
+pub const SUDO_HINT: &str = "run as sudo to see this";
+
+fn sudo_span() -> Span<'static> {
+    Span::styled(SUDO_HINT, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
 }
 
 // ─── Tab 1: Overview ──────────────────────────────────────────────────────────
@@ -212,7 +238,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
 fn draw_overview(frame: &mut Frame, area: Rect, app: &App) {
     let (left, right) = if area.width >= 64 {
         let [l, r] =
-            Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(area);
+            Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(area);
         (l, Some(r))
     } else {
         (area, None)
@@ -255,10 +281,18 @@ fn draw_mem_table(frame: &mut Frame, area: Rect, app: &App) {
     // `free -m` semantics: used = total - free - buff/cache.
     let used = m.total_kb.saturating_sub(m.free_kb).saturating_sub(buff_cache);
 
-    let header = Row::new(vec!["MB", "total", "used", "free", "buff/cache", "available"])
-        .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
-
     let right = |s: String| Cell::from(Text::from(s).alignment(Alignment::Right));
+
+    // Header cells are right-aligned like the numbers under them so the
+    // columns line up exactly as in `free -m`.
+    let header = Row::new(
+        ["MB", "total", "used", "free", "buff/cache", "available"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, h)| if i == 0 { Cell::from(h) } else { right(h.to_string()) })
+            .collect::<Vec<_>>(),
+    )
+    .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
     let mut rows = vec![Row::new(vec![
         Cell::from(Span::styled("Mem:", Style::default().fg(VALUE).add_modifier(Modifier::BOLD))),
@@ -282,14 +316,15 @@ fn draw_mem_table(frame: &mut Frame, area: Rect, app: &App) {
         ]));
     }
 
-    // buff/cache and available get double width so their headers are not clipped.
+    // Fixed widths (wide enough for TB-class machines in MB) keep the table
+    // compact instead of spreading across the whole panel.
     let widths = [
-        Constraint::Length(6),
-        Constraint::Fill(2),
-        Constraint::Fill(2),
-        Constraint::Fill(2),
-        Constraint::Fill(4),
-        Constraint::Fill(4),
+        Constraint::Length(5),
+        Constraint::Length(8),
+        Constraint::Length(8),
+        Constraint::Length(8),
+        Constraint::Length(10),
+        Constraint::Length(10),
     ];
     frame.render_widget(
         Table::new(rows, widths).header(header).column_spacing(1).block(panel("Memory")),
@@ -355,15 +390,30 @@ fn draw_gauge(frame: &mut Frame, area: Rect, title: &str, r: f64, used: u64, tot
 }
 
 fn draw_used_sparkline(frame: &mut Frame, area: Rect, app: &App) {
-    let block = panel("Used % history");
+    // Samples are tenths of a percent. The graph is scaled to the observed
+    // min..max (at least a 1% span) so small drifts remain visible instead of a
+    // flat block, and the title states the range being displayed.
+    let width = area.width.saturating_sub(2) as usize;
+    let samples: Vec<u64> = app.used_history.tail(width).copied().collect();
+    let lo = samples.iter().copied().min().unwrap_or(0);
+    let hi = samples.iter().copied().max().unwrap_or(0);
+    let span = hi.saturating_sub(lo).max(10);
+    let floor = lo.saturating_sub(span / 4); // leave headroom below the minimum
+    let title = if samples.is_empty() {
+        "Used % history".to_string()
+    } else {
+        format!("Used % history · {:.1}%–{:.1}%", lo as f64 / 10.0, hi as f64 / 10.0)
+    };
+    let block = panel(&title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.width == 0 || inner.height == 0 {
         return;
     }
+    let scaled: Vec<u64> = samples.iter().map(|v| v.saturating_sub(floor)).collect();
     let spark = Sparkline::default()
-        .data(app.used_history.tail(inner.width as usize))
-        .max(100)
+        .data(scaled)
+        .max(hi.saturating_sub(floor).max(1))
         .style(Style::default().fg(usage_color(app.used_ratio())));
     frame.render_widget(spark, inner);
 }
@@ -394,7 +444,7 @@ fn draw_summary(frame: &mut Frame, area: Rect, app: &App) {
     if let Some(pi) = &s.pi {
         lines.push(kv("Board", &pi.model));
     } else if s.dimms.is_empty() {
-        lines.push(kv("Modules", "run with sudo"));
+        lines.push(Line::from(vec![label(&format!("{:<14}", "Modules")), sudo_span()]));
     } else {
         let installed: u64 = s.dimms.iter().fold(0u64, |a, d| a.saturating_add(d.size_mb));
         lines.push(kv(
@@ -430,10 +480,7 @@ fn draw_hardware(frame: &mut Frame, area: Rect, app: &App) {
                     "No DIMM hardware data",
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 )),
-                Line::from(Span::styled(
-                    "run with sudo for slot / model details",
-                    Style::default().fg(LABEL),
-                )),
+                Line::from(sudo_span()),
                 Line::from(Span::styled(
                     "(needs dmidecode on Linux)",
                     Style::default().fg(BORDER),
@@ -590,35 +637,57 @@ fn draw_processes(frame: &mut Frame, area: Rect, app: &App) {
     let bar_w = 14usize;
     let right = |s: String| Cell::from(Text::from(s).alignment(Alignment::Right));
 
+    // (pid-or-count column, name, rss) for either view.
+    let groups = if app.grouped { group_by_name(procs) } else { Vec::new() };
+    let entries: Vec<(String, &str, u64)> = if app.grouped {
+        groups.iter().map(|g| (format!("×{}", g.count), g.name.as_str(), g.rss_kb)).collect()
+    } else {
+        procs.iter().map(|p| (p.pid.to_string(), p.name.as_str(), p.rss_kb)).collect()
+    };
+    // Bars are relative to the largest entry (btop-style) so the list is
+    // readable even when every process is a few percent of total RAM; the
+    // Share column keeps the absolute figure.
+    let largest = entries.iter().map(|e| e.2).max().unwrap_or(0);
+
     let header = Row::new(vec![
         right("#".to_string()),
-        right("PID".to_string()),
-        Cell::from("Process"),
+        right(if app.grouped { "Procs" } else { "PID" }.to_string()),
+        Cell::from(if app.grouped { "Process group" } else { "Process" }),
         right("RSS".to_string()),
         right("Share".to_string()),
-        Cell::from(""),
+        Cell::from("vs top"),
     ])
     .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-    let rows: Vec<Row> = procs
+    let rows: Vec<Row> = entries
         .iter()
         .enumerate()
-        .map(|(i, p): (usize, &ProcessMem)| {
-            let r = ratio(p.rss_kb, total);
+        .map(|(i, (id, name, rss_kb))| {
+            let share = ratio(*rss_kb, total);
+            let rel = ratio(*rss_kb, largest);
             Row::new(vec![
                 Cell::from(Text::from(format!("{}.", i + 1)).alignment(Alignment::Right))
                     .style(Style::default().fg(BORDER)),
-                right(p.pid.to_string()),
+                right(id.clone()),
                 Cell::from(Span::styled(
-                    p.name.clone(),
+                    name.to_string(),
                     Style::default().fg(VALUE).add_modifier(Modifier::BOLD),
                 )),
-                right(fmt_kb(p.rss_kb)),
-                right(format!("{:.0}%", r * 100.0)),
-                Cell::from(Line::from(text_bar(r, bar_w))),
+                right(fmt_kb(*rss_kb)),
+                right(format!("{:.1}%", share * 100.0)),
+                Cell::from(Line::from(Span::styled(
+                    text_bar(rel, bar_w).content.into_owned(),
+                    Style::default().fg(share_color(share)),
+                ))),
             ])
         })
         .collect();
+
+    let (title, hint) = if app.grouped {
+        (format!("Top Consumers · GROUPED by name · {} groups", entries.len()), "press g to ungroup")
+    } else {
+        (format!("Top Consumers · {} processes", entries.len()), "press g to group by name")
+    };
 
     let widths = [
         Constraint::Length(4),
@@ -628,6 +697,10 @@ fn draw_processes(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Length(6),
         Constraint::Length(bar_w as u16),
     ];
+    // A process' colour reflects its absolute share of RAM, not the bar length.
+    fn share_color(share: f64) -> Color {
+        if share > 0.25 { Color::Red } else if share > 0.10 { Color::Yellow } else { Color::Green }
+    }
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -635,7 +708,7 @@ fn draw_processes(frame: &mut Frame, area: Rect, app: &App) {
         .row_highlight_style(Style::default().bg(Color::Blue).add_modifier(Modifier::BOLD))
         .highlight_symbol("▌")
         .highlight_spacing(HighlightSpacing::Always)
-        .block(panel("Top Consumers"));
+        .block(panel_with_hint(&title, hint));
 
     let mut state = app.table_state.borrow_mut();
     frame.render_stateful_widget(table, area, &mut state);
@@ -731,15 +804,17 @@ fn draw_temp_table(frame: &mut Frame, area: Rect, temps: &[TempReading]) {
 // ─── Help overlay ─────────────────────────────────────────────────────────────
 
 fn draw_help(frame: &mut Frame, area: Rect) {
-    let rows: [(&str, &str); 8] = [
+    let rows: [(&str, &str); 10] = [
         ("1 / 2 / 3 / 4", "select Overview / Hardware / Processes / Temps"),
         ("Tab / ← / →", "cycle tabs (Shift+Tab goes back)"),
         ("↑ / ↓", "scroll the process list"),
         ("PgUp / PgDn", "scroll by ten rows"),
         ("Home / End", "jump to first / last process"),
+        ("g", "group / ungroup processes by name (sums all workers)"),
         ("r", "refresh now"),
         ("+ / -", "slower / faster refresh (1-60s)"),
-        ("q / Esc / Ctrl+C", "quit"),
+        ("q / Ctrl+C", "quit"),
+        ("Esc", "close this help, or quit"),
     ];
     let mut lines: Vec<Line> = rows
         .iter()

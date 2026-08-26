@@ -163,8 +163,48 @@ fn hardware_tab_shows_sudo_hint_without_dimms() {
     snap.array = MemArrayInfo::default();
     let text = render(&app_on(Tab::Hardware, snap), W, H);
     assert!(text.contains("No DIMM hardware data"), "{text}");
-    assert!(text.contains("sudo"), "the sudo hint must be shown:\n{text}");
+    assert!(text.contains("run as sudo to see this"), "the sudo hint must be shown:\n{text}");
     assert!(text.contains("dmidecode"), "{text}");
+}
+
+#[test]
+fn footer_shows_sudo_hint_on_every_tab_without_dimms() {
+    let mut snap = sample_snapshot();
+    snap.dimms.clear();
+    snap.pi = None;
+    for tab in [Tab::Overview, Tab::Hardware, Tab::Processes, Tab::Temps] {
+        let text = render(&app_on(tab, snap.clone()), W, H);
+        assert!(text.contains("run as sudo to see this"), "{tab:?}:\n{text}");
+    }
+    let text = render(&app_on(Tab::Overview, sample_snapshot()), W, H);
+    assert!(!text.contains("run as sudo"), "no hint when DIMMs are present:\n{text}");
+}
+
+#[test]
+fn memory_table_headers_align_with_values() {
+    let text = render(&app_on(Tab::Overview, sample_snapshot()), W, H);
+    let lines: Vec<&str> = text.lines().collect();
+    let h = lines.iter().position(|l| l.contains("buff/cache")).expect("header row");
+    let header = lines[h];
+    let mem = lines[h + 1];
+    assert!(mem.contains("Mem:"), "{text}");
+    // Every header word must end on the same column as the number under it.
+    for word in ["total", "used", "free", "buff/cache", "available"] {
+        let end = header.find(word).unwrap() + word.len();
+        let under = mem.as_bytes()[end - 1];
+        assert!(under.is_ascii_digit(), "'{word}' not right-aligned over its value:\n{header}\n{mem}");
+    }
+}
+
+#[test]
+fn processes_tab_handles_hundreds_of_rows() {
+    let mut snap = sample_snapshot();
+    snap.top_consumers = (1..=400u32)
+        .map(|i| raminfo::types::ProcessMem { pid: i, name: format!("proc{i}"), rss_kb: 1000 * (401 - i as u64) })
+        .collect();
+    let text = render(&app_on(Tab::Processes, snap), W, H);
+    assert!(text.contains("400 processes"), "{text}");
+    assert!(text.contains("proc1 "), "first (largest) row visible:\n{text}");
 }
 
 #[test]
@@ -194,6 +234,33 @@ fn processes_tab_lists_top_consumers() {
     assert!(text.contains("rust-analyzer"), "{text}");
     assert!(text.contains("1234"), "{text}");
     assert!(text.contains("Share"), "{text}");
+}
+
+#[test]
+fn processes_tab_groups_by_name_with_g() {
+    let mut snap = sample_snapshot();
+    snap.top_consumers = vec![
+        ProcessMem { pid: 1, name: "claude".into(), rss_kb: 500_000 },
+        ProcessMem { pid: 2, name: "chrome".into(), rss_kb: 900_000 },
+        ProcessMem { pid: 3, name: "claude".into(), rss_kb: 600_000 },
+    ];
+    let mut app = app_on(Tab::Processes, snap);
+    let flat = render(&app, W, H);
+    assert!(flat.contains("3 processes"), "{flat}");
+    assert!(flat.contains("press g to group"), "{flat}");
+
+    app.on_key(KeyEvent::from(KeyCode::Char('g')));
+    let grouped = render(&app, W, H);
+    assert!(grouped.contains("GROUPED by name"), "{grouped}");
+    assert!(grouped.contains("2 groups"), "{grouped}");
+    assert!(grouped.contains("press g to ungroup"), "{grouped}");
+    assert!(grouped.contains("×2"), "claude worker count:\n{grouped}");
+    assert!(grouped.contains("1.0 GB"), "summed claude RSS:\n{grouped}");
+    assert!(grouped.contains("g ungroup"), "footer hint:\n{grouped}");
+    // Largest group first.
+    let c = grouped.find("claude").unwrap();
+    let ch = grouped.find("chrome").unwrap();
+    assert!(c < ch, "{grouped}");
 }
 
 #[test]

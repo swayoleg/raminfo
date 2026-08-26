@@ -37,7 +37,7 @@ Raspberry Pi supported.
 │╭──────────────────────────────────────────────|Swap|╮│                                          ││
 ││ █████████     2.9 GB / 16.0 GB  18%                ││                                          ││
 │╰────────────────────────────────────────────────────╯╰──────────────────────────────────────────╯│
-│refresh 2s  •  updates 6  •  1-4/Tab tabs  •  r refresh  •  +/- rate  •  ? help                   │
+│refresh 2s • 1-4 tabs • g group • r refresh • +/- rate • ? help                                    │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -56,10 +56,10 @@ Raspberry Pi supported.
 ││ Motherboard   Gigabyte Z390-AORUS                                                              ││
 │╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
 
-│╭─────────────────────────────────────────────────────────────────────────────────|Top Consumers|╮│
-││     #      PID Process                                               RSS  Share                ││
-││ ▌  1.     1234 chrome                                             2.4 GB     8% █░░░░░░░░░░░░░ ││
-││    2.     4321 rust-analyzer                                      878 MB     3% ░░░░░░░░░░░░░░ ││
+│╭ press g to group by name ─────────────────────────────────|Top Consumers · 355 processes|╮│
+││     #      PID Process                                               RSS  Share vs top         ││
+││ ▌  1.     1234 chrome                                             2.4 GB   7.7% ██████████████ ││
+││    2.     4321 rust-analyzer                                      878 MB   2.8% █████░░░░░░░░░ ││
 │╰────────────────────────────────────────────────────────────────────────────────────────────────╯│
 
 │╭──────────────────────────────────────────────────────────────────────────────|RAM Temperatures|╮│
@@ -78,10 +78,12 @@ Raspberry Pi supported.
 | `1` `2` `3` `4` | Jump to Overview / Hardware / Processes / Temps |
 | `Tab` / `→`, `Shift+Tab` / `←` | Cycle tabs forward / back |
 | `↑` `↓` `PgUp` `PgDn` `Home` `End` | Scroll the process list |
+| `g` | Group / ungroup processes by name (sums RSS and counts workers) |
 | `r` | Refresh now |
 | `+` / `-` | Slower / faster refresh (1–60 s) |
 | `?` | Toggle the help overlay |
-| `q` / `Esc` / `Ctrl+C` | Quit |
+| `Esc` | Close the help overlay, otherwise quit |
+| `q` / `Ctrl+C` | Quit |
 
 ## Non-interactive output
 
@@ -188,13 +190,27 @@ Or in RaspberryPi
 ╰─────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-## Screenshot
+## Screenshots
 
-> **Note:** the screenshots below show the **0.2.x** one-shot report, not the new
-> interactive app introduced in 0.3.0. They are still accurate for `raminfo --full`.
+**Overview** — `free -m`-style table, breakdown bars, RAM/swap gauges and an auto-scaled used-% history:
 
-![raminfo screenshot](assets/screenshot.png)
-![raminfo screenshot](assets/screenshot-raspberry.png)
+![raminfo Overview tab](assets/tui-overview.png)
+
+**Hardware** — DIMM slots, part numbers, speeds, motherboard and free slots (needs `sudo`):
+
+![raminfo Hardware tab](assets/tui-hardware.png)
+
+**Processes** — every process sorted by RSS, live; press `g` to group all workers of the same name (e.g. every `chrome` or `claude`) into one row:
+
+![raminfo Processes tab](assets/tui-processes.png)
+
+**Temps** — DDR5 sensor readings, or a note when the hardware has none (DDR4 here):
+
+![raminfo Temps tab](assets/tui-temps.png)
+
+**Raspberry Pi** — the Hardware tab shows the board and its soldered LPDDR memory (Pi 5 here, via `vcgencmd`):
+
+![raminfo Hardware tab on a Raspberry Pi 5](assets/tui-raspberry.png)
 
 
 ## RAM Temperatures
