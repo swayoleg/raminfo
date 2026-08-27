@@ -93,9 +93,16 @@ The interactive app only starts when stdout is a terminal *and* no output mode w
 raminfo | cat                  # short free(1)-style summary
 raminfo --short                # same, explicitly
 raminfo --full                 # full one-shot report (DIMM table, temps, consumers)
-raminfo --json                 # one compact JSON object
-raminfo --monitor --json       # ndjson stream, one object per refresh
+raminfo --json                 # one compact JSON object, then exit
+raminfo --monitor --json --interval 2   # ndjson stream: one object every 2 s, forever
 ```
+
+> **For monitoring tools:** the streaming form needs **all three** flags —
+> `--monitor` (keep going), `--json` (machine-readable) and `--interval N`
+> (seconds between lines). `raminfo --json --interval 5` on its own prints
+> **one** snapshot and exits: `--interval` only has an effect together with
+> `--monitor`. `raminfo --interval 5` on a terminal just opens the app with a
+> 5-second tick.
 
 ## The classic one-shot report (`--full`)
 
@@ -352,7 +359,7 @@ your_user ALL=(ALL) NOPASSWD: /usr/sbin/dmidecode
 | `--full` | Full one-shot report (DIMM table, upgrade potential, temps, consumers), never interactive |
 | `--json` | Print a single full JSON snapshot and exit (for scripting / `jq`) |
 | `--monitor` | Keep refreshing. On a terminal this is the interactive app; with `--json` it is an ndjson stream; piped without `--json` it repeats the plain dynamic report |
-| `--interval <seconds>` | Refresh / tick rate (default: `2`, minimum `1`). Also accepts `--interval=<seconds>`. Adjustable at runtime with `+`/`-` |
+| `--interval <seconds>` | Refresh / tick rate (default: `2`, minimum `1`). Also accepts `--interval=<seconds>`. Adjustable at runtime with `+`/`-`. Only meaningful with `--monitor` or the interactive app — `--json` without `--monitor` is always a single snapshot |
 | `-h`, `--help` | Print usage and exit |
 
 `--tui` is mutually exclusive with `--short`, `--full` and `--json`; `--short`
